@@ -2,24 +2,30 @@ import { BATCHES, Batch, BatchName, Dezena, DrawRecord, Game, GenerationResult, 
 import { TerritoryMap } from "./territoryEngine";
 import { computeMetrics } from "./coverageEngine";
 import { batchDiversity, isRedundant } from "./diversityEngine";
-import { scoreGame } from "./scoreEngine";
+import { scoreGame, ScoreContext } from "./scoreEngine";
 import { evolve } from "./evolutionaryEngine";
 import { defaultRNG, RNG } from "./rng";
+import { proposeFromBrain, arbitrateBatch, proposalToGame } from "./twoBrainsEngine";
+import { globalPressure, AdaptiveAdjustments } from "./adaptivePressureEngine";
 
 export interface GenerateInput {
-  count: number;            // total de jogos
+  count: number;
   scenario?: Scenario;
   recentDraws?: DrawRecord[];
   rng?: RNG;
   label?: string;
+  /** Quando true, usa Dois Cérebros + Árbitro (recomendado). */
+  twoBrains?: boolean;
+}
+
+export interface GenerationDiagnostics {
+  contradictionsRejected: number;
+  arbiterReasoning: string[];
+  adjustments: AdaptiveAdjustments;
 }
 
 const BATCH_ORDER: BatchName[] = ["Alpha", "Sigma", "Delta", "Omega"];
 
-/**
- * Distribui o total de jogos entre lotes conforme cenário,
- * sempre garantindo pelo menos 1 lote ativo.
- */
 function distributeBatches(count: number, scenario: Scenario): Record<BatchName, number> {
   const dist: Record<BatchName, number> = { Alpha: 0, Sigma: 0, Delta: 0, Omega: 0 };
   if (count <= 0) return dist;
@@ -30,7 +36,6 @@ function distributeBatches(count: number, scenario: Scenario): Record<BatchName,
     exploratory:  [0.10, 0.25, 0.25, 0.40],
   };
   const p = profiles[scenario];
-  // se count for pequeno, usa rotação garantida
   if (count <= 4) {
     for (let i = 0; i < count; i++) dist[BATCH_ORDER[i]]++;
     return dist;
@@ -38,12 +43,9 @@ function distributeBatches(count: number, scenario: Scenario): Record<BatchName,
   let assigned = 0;
   BATCH_ORDER.forEach((b, i) => {
     const n = Math.max(1, Math.round(count * p[i]));
-    dist[b] = n;
-    assigned += n;
+    dist[b] = n; assigned += n;
   });
-  // ajuste fino
   while (assigned > count) {
-    // remove do lote com mais
     const heaviest = (Object.entries(dist) as [BatchName, number][]).sort((a, b) => b[1] - a[1])[0][0];
     if (dist[heaviest] > 1) { dist[heaviest]--; assigned--; } else break;
   }
@@ -54,30 +56,46 @@ function distributeBatches(count: number, scenario: Scenario): Record<BatchName,
   return dist;
 }
 
-/**
- * Para cada jogo de um lote, escolhe a linhagem com base na composição do lote
- * (mistura definida em BATCHES). O dominante recebe peso maior.
- */
-function pickLineageForSlot(batchName: BatchName, slotIdx: number, total: number): LineageId {
-  const meta = BATCHES[batchName];
-  const mix = meta.mix;
-  // intercala dominante / mix
-  if (slotIdx === 0) return meta.dominant;
-  return mix[slotIdx % mix.length];
+/** Equilíbrio A/B desejado por lote (fração de Brain A). */
+function targetBalanceA(name: BatchName, scenario: Scenario): number {
+  const base: Record<BatchName, number> = { Alpha: 0.8, Sigma: 0.45, Delta: 0.3, Omega: 0.2 };
+  const shift: Record<Scenario, number> = { conservative: 0.1, hybrid: 0, aggressive: -0.1, exploratory: -0.2 };
+  return Math.max(0, Math.min(1, base[name] + shift[scenario]));
 }
 
-export async function generate(input: GenerateInput): Promise<GenerationResult> {
+/** Aplica ajustes adaptativos ao baseMutationRate por cenário. */
+function adjustedMutationRate(scenario: Scenario, adj: AdaptiveAdjustments): number {
+  const base = scenario === "exploratory" ? 0.14 : scenario === "aggressive" ? 0.11 : scenario === "conservative" ? 0.06 : 0.08;
+  return Math.max(0.04, Math.min(0.45, base + adj.mutationDelta));
+}
+
+function pickFallbackLineage(batchName: BatchName, slotIdx: number): LineageId {
+  const meta = BATCHES[batchName];
+  if (slotIdx === 0) return meta.dominant;
+  return meta.mix[slotIdx % meta.mix.length];
+}
+
+export async function generate(input: GenerateInput): Promise<GenerationResult & { diagnostics: GenerationDiagnostics }> {
   const rng = input.rng ?? defaultRNG;
   const scenario: Scenario = input.scenario ?? "hybrid";
   const totalCount = input.count;
   const recent = (input.recentDraws ?? []).slice(0, 8).map((d) => d.numbers);
+  const useTwoBrains = input.twoBrains !== false;
+
+  // Pressão adaptativa
+  globalPressure.load();
+  const adjustments = globalPressure.computeAdjustments(scenario);
+  const effectiveScenario = adjustments.scenarioOverride ?? scenario;
 
   const territory = new TerritoryMap();
-  // pré-aquecer território com draws recentes para anti-saturação realista
   recent.forEach((nums) => territory.observeNumbers(nums as Dezena[]));
 
-  const distribution = distributeBatches(totalCount, scenario);
+  const distribution = distributeBatches(totalCount, effectiveScenario);
   const batches: Batch[] = [];
+  let contradictionsRejected = 0;
+  const arbiterReasoning: string[] = [];
+
+  const baseRate = adjustedMutationRate(effectiveScenario, adjustments);
 
   for (const batchName of BATCH_ORDER) {
     const n = distribution[batchName];
@@ -85,46 +103,71 @@ export async function generate(input: GenerateInput): Promise<GenerationResult> 
     const meta = BATCHES[batchName];
     const games: Game[] = [];
 
-    let attempts = 0;
-    while (games.length < n && attempts < n * 6) {
-      attempts++;
-      const lineage = pickLineageForSlot(batchName, games.length, n);
-      const ctx = {
+    if (useTwoBrains) {
+      // Cada cérebro propõe ~ceil(n*1.6) candidatos para o árbitro escolher n.
+      const k = Math.max(2, Math.ceil(n * 1.4));
+      const ctxBase: Omit<ScoreContext, "lineage"> = {
         usage: territory.usageSnapshot(),
-        reference: games.map((g) => g.numbers),
+        reference: [],
         recentDraws: recent as Dezena[][],
-        lineage,
       };
-      const numbers = evolve(lineage, ctx, {
-        populationSize: 32,
-        generations: 18,
-        eliteFrac: 0.25,
-        baseMutationRate: scenario === "exploratory" ? 0.14 : scenario === "aggressive" ? 0.11 : 0.08,
-        rng,
-      });
+      const propsA = proposeFromBrain("A", batchName, 0, ctxBase, k, rng);
+      const propsB = proposeFromBrain("B", batchName, 0, ctxBase, k, rng);
+      const balanceA = targetBalanceA(batchName, effectiveScenario);
+      const { selected, reasoning } = arbitrateBatch([...propsA, ...propsB], n, balanceA, ctxBase);
+      arbiterReasoning.push(`Lote ${batchName}: ${reasoning.join(" | ")}`);
 
-      // Contradição: rejeita se redundante com jogos já aceitos
-      if (isRedundant(numbers, games.map((g) => g.numbers), 0.8)) continue;
-
-      const metrics = computeMetrics(numbers);
-      const score = scoreGame(numbers, ctx, metrics);
-
-      // contradição forte: jogos com score baixíssimo entram no descarte e tentamos de novo
-      if (games.length > 0 && score.total < 0.45) continue;
-
-      games.push({ numbers, lineage, score, metrics });
-      territory.observeNumbers(numbers);
-    }
-
-    // se ficou faltando jogos por restrição muito dura, completa relaxando
-    while (games.length < n) {
-      const lineage = pickLineageForSlot(batchName, games.length, n);
-      const ctx = { usage: territory.usageSnapshot(), reference: games.map((g) => g.numbers), recentDraws: recent as Dezena[][], lineage };
-      const numbers = evolve(lineage, ctx, { populationSize: 24, generations: 12, baseMutationRate: 0.16, rng });
-      const metrics = computeMetrics(numbers);
-      const score = scoreGame(numbers, ctx, metrics);
-      games.push({ numbers, lineage, score, metrics });
-      territory.observeNumbers(numbers);
+      // Contradição: rejeita redundantes do conjunto selecionado
+      const finalGames: Game[] = [];
+      for (const p of selected) {
+        const cand = proposalToGame(p, { ...ctxBase, reference: finalGames.map((g) => g.numbers) });
+        if (isRedundant(cand.numbers, finalGames.map((g) => g.numbers), 0.78)) {
+          contradictionsRejected++;
+          // tenta um substituto: re-evolve com mutação alta
+          const retry = evolve(p.lineage, { ...ctxBase, lineage: p.lineage, reference: finalGames.map((g) => g.numbers) }, {
+            populationSize: 28, generations: 14, baseMutationRate: Math.min(0.45, baseRate + 0.15), rng,
+          });
+          const m = computeMetrics(retry);
+          const s = scoreGame(retry, { ...ctxBase, lineage: p.lineage, reference: finalGames.map((g) => g.numbers) }, m);
+          finalGames.push({ numbers: retry, lineage: p.lineage, score: s, metrics: m });
+        } else {
+          // recompute score considerando refs atualizadas
+          const m = computeMetrics(cand.numbers);
+          const s = scoreGame(cand.numbers, { ...ctxBase, lineage: p.lineage, reference: finalGames.map((g) => g.numbers) }, m);
+          finalGames.push({ ...cand, score: s, metrics: m });
+        }
+        territory.observeNumbers(finalGames[finalGames.length - 1].numbers);
+      }
+      games.push(...finalGames);
+    } else {
+      // Caminho sem dois cérebros (mantido para fallback/testes)
+      let attempts = 0;
+      while (games.length < n && attempts < n * 6) {
+        attempts++;
+        const lineage = pickFallbackLineage(batchName, games.length);
+        const ctx: ScoreContext = {
+          usage: territory.usageSnapshot(),
+          reference: games.map((g) => g.numbers),
+          recentDraws: recent as Dezena[][],
+          lineage,
+        };
+        const numbers = evolve(lineage, ctx, { populationSize: 32, generations: 18, baseMutationRate: baseRate, rng });
+        if (isRedundant(numbers, games.map((g) => g.numbers), 0.8)) { contradictionsRejected++; continue; }
+        const metrics = computeMetrics(numbers);
+        const score = scoreGame(numbers, ctx, metrics);
+        if (games.length > 0 && score.total < 0.45) { contradictionsRejected++; continue; }
+        games.push({ numbers, lineage, score, metrics });
+        territory.observeNumbers(numbers);
+      }
+      while (games.length < n) {
+        const lineage = pickFallbackLineage(batchName, games.length);
+        const ctx: ScoreContext = { usage: territory.usageSnapshot(), reference: games.map((g) => g.numbers), recentDraws: recent as Dezena[][], lineage };
+        const numbers = evolve(lineage, ctx, { populationSize: 24, generations: 12, baseMutationRate: Math.min(0.4, baseRate + 0.08), rng });
+        const metrics = computeMetrics(numbers);
+        const score = scoreGame(numbers, ctx, metrics);
+        games.push({ numbers, lineage, score, metrics });
+        territory.observeNumbers(numbers);
+      }
     }
 
     const avgScore = games.reduce((s, g) => s + g.score.total, 0) / games.length;
@@ -138,12 +181,16 @@ export async function generate(input: GenerateInput): Promise<GenerationResult> 
   const avgCoverage = allGames.reduce((s, g) => s + g.score.coverage, 0) / Math.max(1, allGames.length);
   const territoryEntropy = territory.entropy();
 
-  return {
+  const result: GenerationResult = {
     label: input.label ?? `Geração ${new Date().toLocaleTimeString("pt-BR")}`,
-    scenario,
+    scenario: effectiveScenario,
     requestedCount: totalCount,
     batches,
     metrics: { avgScore, avgDiversity, avgCoverage, territoryEntropy },
     createdAt: new Date().toISOString(),
   };
+
+  globalPressure.observe(result);
+
+  return { ...result, diagnostics: { contradictionsRejected, arbiterReasoning, adjustments } };
 }

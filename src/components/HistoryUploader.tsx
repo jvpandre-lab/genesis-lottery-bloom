@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,7 @@ import { parseDrawsFile } from "@/services/contestService";
 import { countDraws, upsertDraws } from "@/services/storageService";
 import { toast } from "@/hooks/use-toast";
 
-export function HistoryUploader({ onChanged }: { onChanged?: (total: number) => void }) {
+export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (total: number) => void }>(({ onChanged }, _ref) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,4 +80,5 @@ export function HistoryUploader({ onChanged }: { onChanged?: (total: number) => 
       </div>
     </div>
   );
-}
+});
+HistoryUploader.displayName = "HistoryUploader";

@@ -53,24 +53,25 @@ export function gridCoverageScore(m: GameMetrics): number {
 
 /** Distribuição: pares/ímpares + soma + gaps + sequências. */
 export function distributionScore(m: GameMetrics): number {
-  // Pares/ímpares: ideal próximo de 25/25 (50 dezenas)
+  // Pares/ímpares: ideal 25/25. Penaliza não-linearmente (extremos colapsam).
   const parityDev = Math.abs(m.evenCount - GAME_SIZE / 2) / (GAME_SIZE / 2); // 0..1
-  const parity = 1 - parityDev;
+  // curva: parityDev=0 -> 1; 0.2 -> 0.78; 0.5 -> 0.30; 1 -> 0
+  const parity = Math.max(0, 1 - Math.pow(parityDev, 0.6));
 
-  // Soma esperada: média 49.5 * 50 = 2475 (range teórico 1225..3725)
+  // Soma esperada: média 49.5 * 50 = 2475
   const expectedSum = 2475;
   const sumDev = Math.abs(m.sumTotal - expectedSum) / 1250;
   const sum = 1 - Math.min(1, sumDev);
 
-  // Gaps: meanGap esperado ~ (99 - 0)/(50-1) ≈ 2.02; tolerância
+  // Gaps esperados ~ 2.02
   const gapDev = Math.abs(m.meanGap - 2.02) / 2;
   const gaps = 1 - Math.min(1, gapDev);
 
-  // Sequências consecutivas: poucas é melhor (penaliza > 8)
+  // Sequências consecutivas: poucas é melhor
   const seqPenalty = Math.min(1, Math.max(0, m.consecutivePairs - 8) / 15);
   const seq = 1 - seqPenalty;
 
-  return parity * 0.3 + sum * 0.2 + gaps * 0.25 + seq * 0.25;
+  return parity * 0.45 + sum * 0.15 + gaps * 0.20 + seq * 0.20;
 }
 
 /** Penalização por clusters fechados (muitos consecutivos / faixa saturada). */

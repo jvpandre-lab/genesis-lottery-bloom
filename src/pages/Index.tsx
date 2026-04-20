@@ -1,14 +1,19 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, Activity, Layers, Cpu, Shuffle, Target } from "lucide-react";
-import { generate } from "@/engine/generatorCore";
+import { generate, GenerationDiagnostics } from "@/engine/generatorCore";
 import { GenerationResult, Scenario } from "@/engine/lotteryTypes";
 import { fetchRecentDraws, persistGeneration } from "@/services/storageService";
 import { BatchSection } from "@/components/BatchSection";
 import { TerritoryHeatmap } from "@/components/TerritoryHeatmap";
 import { HistoryUploader } from "@/components/HistoryUploader";
+import { BacktestPanel } from "@/components/BacktestPanel";
+import { RecommendationsPanel } from "@/components/RecommendationsPanel";
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
+import { recommend } from "@/engine/recommendationEngine";
+import { globalPressure } from "@/engine/adaptivePressureEngine";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +31,7 @@ const Index = () => {
   const [scenario, setScenario] = useState<Scenario>("hybrid");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
+  const [diag, setDiag] = useState<GenerationDiagnostics | null>(null);
   const [draws, setDraws] = useState<number>(0);
 
   async function handleGenerate() {
@@ -33,11 +39,12 @@ const Index = () => {
     try {
       let recent: any[] = [];
       try { recent = await fetchRecentDraws(8); } catch {}
-      // pequena espera para o spinner aparecer
       await new Promise((r) => setTimeout(r, 30));
-      const res = await generate({ count, scenario, recentDraws: recent });
-      setResult(res);
-      try { await persistGeneration(res); } catch (e: any) {
+      const res = await generate({ count, scenario, recentDraws: recent, twoBrains: true });
+      const { diagnostics, ...gen } = res;
+      setResult(gen as GenerationResult);
+      setDiag(diagnostics);
+      try { await persistGeneration(gen as GenerationResult); } catch (e: any) {
         toast({ title: "Geração concluída (não persistida)", description: e?.message ?? "" });
       }
     } catch (e: any) {
@@ -46,6 +53,12 @@ const Index = () => {
       setBusy(false);
     }
   }
+
+  const recommendations = useMemo(() => {
+    if (!result || !diag) return [];
+    globalPressure.load();
+    return recommend(result, globalPressure.signals(), diag.adjustments);
+  }, [result, diag]);
 
   return (
     <div className="min-h-screen">
@@ -156,6 +169,9 @@ const Index = () => {
               </div>
               <aside className="space-y-6">
                 <TerritoryHeatmap result={result} />
+                {diag && <DiagnosticsPanel diag={diag} />}
+                {recommendations.length > 0 && <RecommendationsPanel items={recommendations} />}
+                <BacktestPanel currentGeneration={result} />
                 <div className="glass rounded-xl p-5 space-y-3">
                   <h4 className="text-sm font-semibold tracking-tight">Composição das linhagens</h4>
                   <LineageBreakdown result={result} />
