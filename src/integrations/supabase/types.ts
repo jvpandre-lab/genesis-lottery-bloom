@@ -14,7 +14,142 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      generation_batches: {
+        Row: {
+          created_at: string
+          dominant_lineage: string
+          generation_id: string
+          id: string
+          metrics: Json
+          name: string
+          purpose: string
+          score: number
+        }
+        Insert: {
+          created_at?: string
+          dominant_lineage: string
+          generation_id: string
+          id?: string
+          metrics?: Json
+          name: string
+          purpose: string
+          score?: number
+        }
+        Update: {
+          created_at?: string
+          dominant_lineage?: string
+          generation_id?: string
+          id?: string
+          metrics?: Json
+          name?: string
+          purpose?: string
+          score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generation_batches_generation_id_fkey"
+            columns: ["generation_id"]
+            isOneToOne: false
+            referencedRelation: "generations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generation_games: {
+        Row: {
+          batch_id: string
+          created_at: string
+          id: string
+          lineage: string
+          metrics: Json
+          numbers: number[]
+          position: number
+          score: number
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          id?: string
+          lineage: string
+          metrics?: Json
+          numbers: number[]
+          position?: number
+          score?: number
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          id?: string
+          lineage?: string
+          metrics?: Json
+          numbers?: number[]
+          position?: number
+          score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generation_games_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "generation_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generations: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          metrics: Json
+          params: Json
+          requested_count: number
+          scenario: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          metrics?: Json
+          params?: Json
+          requested_count: number
+          scenario: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          metrics?: Json
+          params?: Json
+          requested_count?: number
+          scenario?: string
+        }
+        Relationships: []
+      }
+      lotomania_draws: {
+        Row: {
+          contest_number: number
+          created_at: string
+          draw_date: string | null
+          id: string
+          numbers: number[]
+        }
+        Insert: {
+          contest_number: number
+          created_at?: string
+          draw_date?: string | null
+          id?: string
+          numbers: number[]
+        }
+        Update: {
+          contest_number?: number
+          created_at?: string
+          draw_date?: string | null
+          id?: string
+          numbers?: number[]
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
