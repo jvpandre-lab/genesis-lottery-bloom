@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { validateDraw, syncDraws, parseDrawsFile } from "../services/contestService";
+import { validateBet, validateOfficialDraw, syncDraws, parseDrawsFile } from "../services/contestService";
 import * as storageService from "../services/storageService";
 import { DrawRecord } from "../engine/lotteryTypes";
 
@@ -26,7 +26,7 @@ describe("Validação Robusta dos 8 Pontos - Fluxo Híbrido", () => {
         it("deve validar que concurso exige exatamente 50 dezenas, únicas, domínio 00..99, formato string '00'", () => {
             // Setup válido
             const validSim = Array.from({ length: 50 }, (_, i) => i);
-            const res = validateDraw(validSim);
+            const res = validateBet(validSim);
             expect(Array.isArray(res)).toBe(true);
             if (Array.isArray(res)) {
                 expect(res.length).toBe(50);
@@ -35,20 +35,30 @@ describe("Validação Robusta dos 8 Pontos - Fluxo Híbrido", () => {
             }
 
             // Rejeita > 50
-            expect(validateDraw(Array.from({ length: 51 }, (_, i) => i))).toHaveProperty("error");
+            expect(validateBet(Array.from({ length: 51 }, (_, i) => i))).toHaveProperty("error");
 
-            // Rejeita < 50
-            expect(validateDraw(Array.from({ length: 20 }, (_, i) => i))).toHaveProperty("error");
+            // Rejeita < 50 para validação de aposta
+            expect(validateBet(Array.from({ length: 20 }, (_, i) => i))).toHaveProperty("error");
+
+            // Aceita exatamente 20 dezenas para concurso oficial
+            const officialDraw = Array.from({ length: 20 }, (_, i) => i);
+            const officialRes = validateOfficialDraw(officialDraw);
+            expect(Array.isArray(officialRes)).toBe(true);
+            if (Array.isArray(officialRes)) {
+                expect(officialRes.length).toBe(20);
+                expect(officialRes[0]).toBe("00");
+                expect(officialRes[19]).toBe("19");
+            }
 
             // Rejeita duplicados
             const dups = Array.from({ length: 49 }, (_, i) => i);
             dups.push(1); // Duplicado
-            expect(validateDraw(dups)).toHaveProperty("error", "duplicate_numbers");
+            expect(validateBet(dups)).toHaveProperty("error", "duplicate_numbers");
 
             // Rejeita formato que fuja do 00..99
             const outBounds = Array.from({ length: 49 }, (_, i) => i);
             outBounds.push(100);
-            expect(validateDraw(outBounds)).toHaveProperty("error");
+            expect(validateBet(outBounds)).toHaveProperty("error");
         });
     });
 
@@ -62,11 +72,11 @@ describe("Validação Robusta dos 8 Pontos - Fluxo Híbrido", () => {
             // Mock Upsert
             vi.mocked(storageService.upsertDraws).mockResolvedValueOnce(1); // Retorna 1 inserido
 
-            // Mock API responde com 3 concursos: 2499, 2500, e 2501
+            // Mock API responde com 3 concursos oficiais: 2499, 2500, e 2501
             const apiResponse = [
-                { concurso: 2499, dezenas: Array.from({ length: 50 }, (_, i) => i) },
-                { concurso: 2500, dezenas: Array.from({ length: 50 }, (_, i) => i) },
-                { concurso: 2501, dezenas: Array.from({ length: 50 }, (_, i) => i) },
+                { concurso: 2499, dezenas: Array.from({ length: 20 }, (_, i) => i) },
+                { concurso: 2500, dezenas: Array.from({ length: 20 }, (_, i) => i) },
+                { concurso: 2501, dezenas: Array.from({ length: 20 }, (_, i) => i) },
             ];
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -93,6 +103,33 @@ describe("Validação Robusta dos 8 Pontos - Fluxo Híbrido", () => {
             // 2499, 2500 = não tenta push, ignorados
             expect(report.status).toBe("success");
         });
+
+        it("deve aceitar concurso oficial de 20 dezenas no sync incremental", async () => {
+            vi.mocked(storageService.fetchRecentDraws).mockResolvedValueOnce([]);
+            vi.mocked(storageService.upsertDraws).mockResolvedValueOnce(1);
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                json: async () => [
+                    { concurso: 1, dezenas: Array.from({ length: 20 }, (_, i) => i) }
+                ]
+            });
+
+            const report = await syncDraws();
+
+            expect(storageService.fetchRecentDraws).toHaveBeenCalledWith(1);
+            expect(mockFetch).toHaveBeenCalled();
+            expect(storageService.upsertDraws).toHaveBeenCalledTimes(1);
+
+            const payload = vi.mocked(storageService.upsertDraws).mock.calls[0][0];
+            expect(payload).toHaveLength(1);
+            expect(payload[0].contestNumber).toBe(1);
+            expect(payload[0].numbers).toHaveLength(20);
+            expect(payload[0].numbers[0]).toBe("00");
+            expect(payload[0].numbers[19]).toBe("19");
+            expect(report.status).toBe("success");
+            expect(report.newRecordsAdded).toBe(1);
+        });
     });
 
     describe("3. FALLBACK REAL", () => {
@@ -108,7 +145,7 @@ describe("Validação Robusta dos 8 Pontos - Fluxo Híbrido", () => {
             expect(report.error).toContain("API offline");
 
             // Validar manual JSON Upload continua operando estritamente
-            const manualJSON = `[{"contestNumber": 100, "drawDate": "2024-01-01", "numbers": [${Array.from({ length: 50 }, (_, i) => i).join(",")}]}]`;
+            const manualJSON = `[{"contestNumber": 100, "drawDate": "2024-01-01", "numbers": [${Array.from({ length: 20 }, (_, i) => i).join(",")}]}]`;
             const manualRes = parseDrawsFile(manualJSON, "historico.json");
             if ("draws" in manualRes) {
                 expect(manualRes.draws.length).toBe(1);
@@ -135,8 +172,8 @@ describe("Validação Robusta dos 8 Pontos - Fluxo Híbrido", () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 json: async () => [
-                    { concurso: 1, dezenas: Array.from({ length: 50 }, (_, i) => i) },  // ok
-                    { concurso: 2, dezenas: Array.from({ length: 50 }, (_, i) => i) },  // ok (fingiremos q bate local e é ignorado no returns)
+                    { concurso: 1, dezenas: Array.from({ length: 20 }, (_, i) => i) },  // ok
+                    { concurso: 2, dezenas: Array.from({ length: 20 }, (_, i) => i) },  // ok (fingiremos q bate local e é ignorado no returns)
                 ]
             });
 

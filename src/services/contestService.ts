@@ -22,10 +22,9 @@ let globalLastSuccessfulSync: string | null = null;
 const CAIXA_API_URL = "https://loteriascaixa-api.herokuapp.com/api/lotomania";
 
 /**
- * Validação Nuclear (Domínio Lotomania) - Como estritamente solicitado
- * Exige EXATAMENTE 50 números, domínio 00..99, garantindo unicidade.
+ * Normaliza a entrada de dezenas para strings no formato 00..99.
  */
-export function validateDraw(rawNums: any[] | string): string[] | { error: string } {
+function normalizeRawNumbers(rawNums: any[] | string): string[] {
   let numsArr: any[];
 
   if (Array.isArray(rawNums)) {
@@ -34,7 +33,7 @@ export function validateDraw(rawNums: any[] | string): string[] | { error: strin
     numsArr = String(rawNums).split(/[,\s;|-]+/);
   }
 
-  const parsed = numsArr
+  return numsArr
     .map(n => {
       const numStr = String(n).trim();
       const numVal = Number(numStr);
@@ -44,21 +43,35 @@ export function validateDraw(rawNums: any[] | string): string[] | { error: strin
       return null;
     })
     .filter((n): n is string => n !== null);
+}
 
-  if (parsed.length !== 50) {
-    return { error: `invalid_length_expected_50_got_${parsed.length}` };
+function validateNumberSet(rawNums: any[] | string, expectedLength: number): string[] | { error: string } {
+  const parsed = normalizeRawNumbers(rawNums);
+
+  if (parsed.length !== expectedLength) {
+    return { error: `invalid_length_expected_${expectedLength}_got_${parsed.length}` };
   }
 
-  // Garantir unicidade sem bagunçar a ordem de forma que cause problemas 
-  // (mas set tira as duplicatas, logo se cair length falha embaixo)
   const unique = Array.from(new Set(parsed)).sort((a, b) => Number(a) - Number(b));
-
-  if (unique.length !== 50) {
+  if (unique.length !== expectedLength) {
     return { error: "duplicate_numbers" };
   }
 
   return unique;
 }
+
+export function validateBet(rawNums: any[] | string): string[] | { error: string } {
+  return validateNumberSet(rawNums, 50);
+}
+
+export function validateOfficialDraw(rawNums: any[] | string): string[] | { error: string } {
+  return validateNumberSet(rawNums, 20);
+}
+
+/**
+ * @deprecated Prefer explicit validateBet or validateOfficialDraw.
+ */
+export const validateDraw = validateBet;
 
 /**
  * Busca histórico automaticamente via API oficial (Defensiva)
@@ -133,7 +146,7 @@ export async function syncDraws(): Promise<SyncReport> {
       }
 
       const rawNums = item.dezenas ?? item.numbers;
-      const valid = validateDraw(rawNums);
+      const valid = validateOfficialDraw(rawNums);
 
       if ("error" in valid) {
         console.warn(`[syncDraws] Contest ${contest} validation failed: ${valid.error}`);
@@ -205,7 +218,7 @@ function parseJSON(content: string): { draws: DrawRecord[], report: ImportReport
       continue;
     }
 
-    const valid = validateDraw(rawNums);
+    const valid = validateOfficialDraw(rawNums);
     if ("error" in valid) {
       console.warn(`[parseJSON] Contest ${contest} validation failed: ${valid.error}`);
       report.discardReasons[valid.error] = (report.discardReasons[valid.error] || 0) + 1;
@@ -254,7 +267,7 @@ function parseCSV(content: string): { draws: DrawRecord[], report: ImportReport 
       numStart = 2;
     }
     const rawNums = cells.slice(numStart);
-    const valid = validateDraw(rawNums);
+    const valid = validateOfficialDraw(rawNums);
 
     if ("error" in valid) {
       console.warn(`[parseCSV] Contest ${contest} validation failed: ${valid.error}`);
