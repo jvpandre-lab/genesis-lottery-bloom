@@ -133,9 +133,6 @@ export type Database = {
           draw_date: string | null
           id: string
           numbers: number[]
-          source: string | null
-          synced_at: string | null
-          last_checked_at: string | null
         }
         Insert: {
           contest_number: number
@@ -143,9 +140,6 @@ export type Database = {
           draw_date?: string | null
           id?: string
           numbers: number[]
-          source?: string | null
-          synced_at?: string | null
-          last_checked_at?: string | null
         }
         Update: {
           contest_number?: number
@@ -153,9 +147,6 @@ export type Database = {
           draw_date?: string | null
           id?: string
           numbers?: number[]
-          source?: string | null
-          synced_at?: string | null
-          last_checked_at?: string | null
         }
         Relationships: []
       }

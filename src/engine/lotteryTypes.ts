@@ -114,7 +114,5 @@ export interface DrawRecord {
   contestNumber: number;
   drawDate?: string;
   numbers: Dezena[] | string[]; // Suporte explícito para numérico e formato "00" normalizado
-  source?: "api" | "database" | "manual";
-  syncedAt?: string;
-  lastCheckedAt?: string;
+  createdAt?: string;
 }

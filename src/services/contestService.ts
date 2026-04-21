@@ -100,16 +100,22 @@ export async function syncDraws(): Promise<SyncReport> {
   };
 
   try {
+    console.log("[syncDraws] Starting synchronization...");
+    
     // Passo 1: O que temos no banco? Identificar o mais recente.
     const fromDb = await fetchRecentDraws(1);
     const lastContestNumber = fromDb.length > 0 ? fromDb[0].contestNumber : 0;
+    console.log(`[syncDraws] Last contest in DB: ${lastContestNumber}`);
 
     // Passo 2: Buscar da API com retry e timeout
     let apiData: any[];
     try {
+      console.log("[syncDraws] Attempting to fetch from Caixa API...");
       apiData = await fetchDrawsFromAPIWithRetry(2, 8000);
+      console.log(`[syncDraws] API returned ${apiData.length} records`);
     } catch (e: any) {
       // Fallback pro banco!
+      console.warn(`[syncDraws] API failed: ${e.message}. Using fallback.`);
       report.status = "fallback_banco";
       report.error = "API offline ou timeout, usando dados do cache local.";
       if (globalLastSuccessfulSync) report.lastSuccessfulSyncAt = globalLastSuccessfulSync;
@@ -118,11 +124,11 @@ export async function syncDraws(): Promise<SyncReport> {
 
     // Passo 3: Normalizar e extrair incrementais
     const toInsert: DrawRecord[] = [];
-    const timestamp = new Date().toISOString();
 
     for (const item of apiData) {
       const contest = Number(item.concurso ?? item.contestNumber);
       if (!contest || contest <= lastContestNumber) {
+        console.log(`[syncDraws] Skipping contest ${contest} (already in DB or invalid)`);
         continue; // Ignora os que já temos ou lixos sem concurso (Incremental)
       }
 
@@ -130,34 +136,38 @@ export async function syncDraws(): Promise<SyncReport> {
       const valid = validateDraw(rawNums);
 
       if ("error" in valid) {
-        // Registro ignorado silenciosamente no loop de upsert, mas entra na logica manual se quisermos
+        console.warn(`[syncDraws] Contest ${contest} validation failed: ${valid.error}`);
         report.recordsIgnoredDuplicate++; // Usando essa flag genérica ou podemos criar uma discarded API count
       } else {
+        console.log(`[syncDraws] Contest ${contest} validated successfully, will be inserted`);
         toInsert.push({
           contestNumber: contest,
           drawDate: item.data ? normalizeDate(item.data) : undefined,
-          numbers: valid, // string[]
-          source: "api",
-          syncedAt: timestamp,
-          lastCheckedAt: timestamp
+          numbers: valid // string[]
         });
       }
     }
 
     if (toInsert.length > 0) {
+      console.log(`[syncDraws] Preparing to upsert ${toInsert.length} new records`);
       // Upsert defensivo (ignoreDuplicates ativado no Service para proteger histórico)
       const added = await upsertDraws(toInsert);
       report.newRecordsAdded = added;
       // os que n foram adicionados do lote toInsert, foram ignorados
       report.recordsIgnoredDuplicate += (toInsert.length - added);
+      console.log(`[syncDraws] Upsert completed: ${added} new records added`);
+    } else {
+      console.log("[syncDraws] No new records to insert (all contests already in DB)");
     }
 
-    globalLastSuccessfulSync = timestamp;
+    globalLastSuccessfulSync = new Date().toISOString();
     report.status = "success";
-    report.lastSuccessfulSyncAt = timestamp;
+    report.lastSuccessfulSyncAt = globalLastSuccessfulSync;
+    console.log("[syncDraws] Synchronization completed successfully");
     return report;
 
   } catch (err: any) {
+    console.error(`[syncDraws] Critical error: ${err.message}`);
     report.status = "erro_total";
     report.error = err.message;
     return report;
@@ -183,14 +193,13 @@ function parseJSON(content: string): { draws: DrawRecord[], report: ImportReport
   report.totalRead = arr.length;
   const out: DrawRecord[] = [];
 
-  const timestamp = new Date().toISOString();
-
   for (const item of arr) {
     const contest = Number(item.contestNumber ?? item.contest_number ?? item.concurso ?? item.numero ?? item.number);
     const drawDate = item.drawDate ?? item.draw_date ?? item.data ?? item.date;
     const rawNums = item.numbers ?? item.dezenas ?? item.dezenasSorteadas ?? item.dezenas_sorteadas;
 
     if (!contest || !rawNums || !Number.isFinite(contest) || contest < 1) {
+      console.warn(`[parseJSON] Skipping invalid record: contest=${contest}, hasNumbers=${!!rawNums}`);
       report.discardReasons["invalid_contest_data"] = (report.discardReasons["invalid_contest_data"] || 0) + 1;
       report.totalDiscarded++;
       continue;
@@ -198,6 +207,7 @@ function parseJSON(content: string): { draws: DrawRecord[], report: ImportReport
 
     const valid = validateDraw(rawNums);
     if ("error" in valid) {
+      console.warn(`[parseJSON] Contest ${contest} validation failed: ${valid.error}`);
       report.discardReasons[valid.error] = (report.discardReasons[valid.error] || 0) + 1;
       report.totalDiscarded++;
       continue;
@@ -206,10 +216,7 @@ function parseJSON(content: string): { draws: DrawRecord[], report: ImportReport
     out.push({
       contestNumber: contest,
       drawDate: typeof drawDate === "string" ? drawDate.slice(0, 10) : undefined,
-      numbers: valid,
-      source: "manual",
-      syncedAt: timestamp,
-      lastCheckedAt: timestamp
+      numbers: valid
     });
     report.totalValid++;
   }
@@ -221,7 +228,6 @@ function parseCSV(content: string): { draws: DrawRecord[], report: ImportReport 
   const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
   report.totalRead = lines.length;
   const out: DrawRecord[] = [];
-  const timestamp = new Date().toISOString();
 
   let start = 0;
   if (/[a-zA-Z]/.test(lines[0])) start = 1;
@@ -229,12 +235,14 @@ function parseCSV(content: string): { draws: DrawRecord[], report: ImportReport 
   for (let i = start; i < lines.length; i++) {
     const cells = lines[i].split(/[,;\t]/).map((s) => s.trim()).filter(Boolean);
     if (cells.length < 5) {
+      console.warn(`[parseCSV] Line ${i + 1} has insufficient columns (${cells.length} < 5)`);
       report.discardReasons["insufficient_columns"] = (report.discardReasons["insufficient_columns"] || 0) + 1;
       report.totalDiscarded++;
       continue;
     }
     const contest = Number(cells[0]);
     if (!Number.isFinite(contest) || contest < 1) {
+      console.warn(`[parseCSV] Line ${i + 1} has invalid contest number: ${cells[0]}`);
       report.discardReasons["invalid_contest_number"] = (report.discardReasons["invalid_contest_number"] || 0) + 1;
       report.totalDiscarded++;
       continue;
@@ -249,6 +257,7 @@ function parseCSV(content: string): { draws: DrawRecord[], report: ImportReport 
     const valid = validateDraw(rawNums);
 
     if ("error" in valid) {
+      console.warn(`[parseCSV] Contest ${contest} validation failed: ${valid.error}`);
       report.discardReasons[valid.error] = (report.discardReasons[valid.error] || 0) + 1;
       report.totalDiscarded++;
       continue;
@@ -257,10 +266,7 @@ function parseCSV(content: string): { draws: DrawRecord[], report: ImportReport 
     out.push({
       contestNumber: contest,
       drawDate,
-      numbers: valid,
-      source: "manual",
-      syncedAt: timestamp,
-      lastCheckedAt: timestamp
+      numbers: valid
     });
     report.totalValid++;
   }

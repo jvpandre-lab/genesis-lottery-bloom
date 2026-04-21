@@ -2,44 +2,58 @@ import { supabase } from "@/integrations/supabase/client";
 import { Dezena, DrawRecord, GenerationResult } from "@/engine/lotteryTypes";
 
 export async function fetchRecentDraws(limit = 10): Promise<DrawRecord[]> {
+  console.log(`[fetchRecentDraws] Fetching ${limit} recent draws from lotomania_draws`);
   const { data, error } = await supabase
     .from("lotomania_draws")
-    .select("contest_number, draw_date, numbers, source, synced_at, last_checked_at")
+    .select("id, contest_number, draw_date, numbers, created_at")
     .order("contest_number", { ascending: false })
     .limit(limit);
-  if (error) throw error;
+  if (error) {
+    console.error(`[fetchRecentDraws] Database error:`, error);
+    throw error;
+  }
+  console.log(`[fetchRecentDraws] Successfully fetched ${data?.length ?? 0} draws`);
   return (data ?? []).map((r) => ({
     contestNumber: r.contest_number,
     drawDate: r.draw_date ?? undefined,
     numbers: r.numbers as any,
-    source: r.source,
-    syncedAt: r.synced_at,
-    lastCheckedAt: r.last_checked_at
+    createdAt: r.created_at
   }));
 }
 
 export async function countDraws(): Promise<number> {
+  console.log(`[countDraws] Counting total draws in lotomania_draws`);
   const { count, error } = await supabase
     .from("lotomania_draws")
     .select("*", { count: "exact", head: true });
-  if (error) throw error;
+  if (error) {
+    console.error(`[countDraws] Database error:`, error);
+    throw error;
+  }
+  console.log(`[countDraws] Total draws in database: ${count ?? 0}`);
   return count ?? 0;
 }
 
 export async function upsertDraws(draws: DrawRecord[]): Promise<number> {
-  if (draws.length === 0) return 0;
+  if (draws.length === 0) {
+    console.log(`[upsertDraws] No draws to upsert`);
+    return 0;
+  }
+  console.log(`[upsertDraws] Upserting ${draws.length} draws to lotomania_draws`);
   const rows = draws.map((d) => ({
     contest_number: d.contestNumber,
     draw_date: d.drawDate ?? null,
-    numbers: d.numbers,
-    source: d.source ?? "manual",
-    synced_at: d.syncedAt ?? new Date().toISOString(),
-    last_checked_at: d.lastCheckedAt ?? new Date().toISOString()
+    numbers: d.numbers
   }));
+  console.log(`[upsertDraws] First record to insert:`, JSON.stringify(rows[0]));
   const { error, count } = await supabase
     .from("lotomania_draws")
     .upsert(rows, { onConflict: "contest_number", count: "exact", ignoreDuplicates: true });
-  if (error) throw error;
+  if (error) {
+    console.error(`[upsertDraws] Database upsert error:`, error);
+    throw error;
+  }
+  console.log(`[upsertDraws] Successfully upserted ${count ?? 0} records`);
   return count ?? rows.length;
 }
 

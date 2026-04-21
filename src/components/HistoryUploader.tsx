@@ -12,7 +12,7 @@ import { ptBR } from "date-fns/locale";
 export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (total: number) => void }>(({ onChanged }, _ref) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [count, setCount] = useState<number | null>(null);
-  const [latestSync, setLatestSync] = useState<{ source?: string; syncedAt?: string } | null>(null);
+  const [latestSync, setLatestSync] = useState<{ createdAt?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -22,7 +22,7 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
       if (c > 0) {
         const recent = await fetchRecentDraws(1);
         if (recent.length > 0) {
-          setLatestSync({ source: recent[0].source, syncedAt: recent[0].syncedAt });
+          setLatestSync({ createdAt: recent[0].createdAt });
         }
       } else {
         setLatestSync(null);
@@ -86,11 +86,6 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
         <div>
           <div className="text-sm font-medium flex items-center gap-2">
             Histórico Oficial
-            {latestSync?.source && (
-              <Badge variant="outline" className={`text-[10px] uppercase h-5 font-bold ${latestSync.source === 'api' ? 'text-green-400 border-green-500/30' : latestSync.source === 'manual' ? 'text-yellow-400 border-yellow-500/30' : 'text-blue-400 border-blue-500/30'}`}>
-                Origem: {latestSync.source}
-              </Badge>
-            )}
           </div>
           <div className="text-[11px] text-muted-foreground flex flex-col mt-0.5">
             {count === null ? "Indisponível" : count === 0 ? (
@@ -99,9 +94,9 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
               <span>{count} concursos armazenados na base local.</span>
             )}
 
-            {latestSync?.syncedAt && (
+            {latestSync?.createdAt && (
               <span className="text-[10px] opacity-75">
-                Última sincronia: {formatDistanceToNow(new Date(latestSync.syncedAt), { addSuffix: true, locale: ptBR })}
+                Última sincronia: {formatDistanceToNow(new Date(latestSync.createdAt), { addSuffix: true, locale: ptBR })}
               </span>
             )}
           </div>
