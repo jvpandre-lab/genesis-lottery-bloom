@@ -29,11 +29,11 @@ export interface LineageMeta {
 
 export const LINEAGES: Record<LineageId, LineageMeta> = {
   conservative: { id: "conservative", name: "Conservadora Estrutural", short: "CON", description: "Distribuição equilibrada, baixa volatilidade estrutural.", color: "lineage-conservative" },
-  dispersive:   { id: "dispersive",   name: "Dispersiva Extrema",      short: "DSP", description: "Maximiza espaçamento e dispersão entre dezenas.",      color: "lineage-dispersive" },
-  coverage:     { id: "coverage",     name: "Cobertura Massiva",       short: "COV", description: "Otimiza ocupação por faixas e regiões do espaço.",      color: "lineage-coverage" },
-  anticrowd:    { id: "anticrowd",    name: "Anti-Multidão",           short: "ANT", description: "Evita padrões humanos previsíveis e simétricos.",       color: "lineage-anticrowd" },
-  hybrid:       { id: "hybrid",       name: "Híbrida Adaptativa",      short: "HYB", description: "Combina cobertura, dispersão e anti-viés.",             color: "lineage-hybrid" },
-  chaotic:      { id: "chaotic",      name: "Caótica Controlada",      short: "CHA", description: "Alta entropia controlada, exploração agressiva.",       color: "lineage-chaotic" },
+  dispersive: { id: "dispersive", name: "Dispersiva Extrema", short: "DSP", description: "Maximiza espaçamento e dispersão entre dezenas.", color: "lineage-dispersive" },
+  coverage: { id: "coverage", name: "Cobertura Massiva", short: "COV", description: "Otimiza ocupação por faixas e regiões do espaço.", color: "lineage-coverage" },
+  anticrowd: { id: "anticrowd", name: "Anti-Multidão", short: "ANT", description: "Evita padrões humanos previsíveis e simétricos.", color: "lineage-anticrowd" },
+  hybrid: { id: "hybrid", name: "Híbrida Adaptativa", short: "HYB", description: "Combina cobertura, dispersão e anti-viés.", color: "lineage-hybrid" },
+  chaotic: { id: "chaotic", name: "Caótica Controlada", short: "CHA", description: "Alta entropia controlada, exploração agressiva.", color: "lineage-chaotic" },
 };
 
 export type BatchName = "Alpha" | "Sigma" | "Delta" | "Omega";
@@ -48,10 +48,10 @@ export interface BatchMeta {
 }
 
 export const BATCHES: Record<BatchName, BatchMeta> = {
-  Alpha: { name: "Alpha", purpose: "Estabilidade",        description: "Estrutura sólida, baixa variância.",     dominant: "conservative", mix: ["conservative","coverage","hybrid"], color: "batch-alpha" },
-  Sigma: { name: "Sigma", purpose: "Dispersão",           description: "Espaçamento e diversidade ampliados.",   dominant: "dispersive",   mix: ["dispersive","coverage","anticrowd"], color: "batch-sigma" },
-  Delta: { name: "Delta", purpose: "Ruptura",             description: "Quebra de padrões e anti-viés humano.",  dominant: "anticrowd",    mix: ["anticrowd","chaotic","hybrid"], color: "batch-delta" },
-  Omega: { name: "Omega", purpose: "Exploração extrema",  description: "Caos controlado em zonas pouco usadas.", dominant: "chaotic",      mix: ["chaotic","dispersive","anticrowd"], color: "batch-omega" },
+  Alpha: { name: "Alpha", purpose: "Estabilidade", description: "Estrutura sólida, baixa variância.", dominant: "conservative", mix: ["conservative", "coverage", "hybrid"], color: "batch-alpha" },
+  Sigma: { name: "Sigma", purpose: "Dispersão", description: "Espaçamento e diversidade ampliados.", dominant: "dispersive", mix: ["dispersive", "coverage", "anticrowd"], color: "batch-sigma" },
+  Delta: { name: "Delta", purpose: "Ruptura", description: "Quebra de padrões e anti-viés humano.", dominant: "anticrowd", mix: ["anticrowd", "chaotic", "hybrid"], color: "batch-delta" },
+  Omega: { name: "Omega", purpose: "Exploração extrema", description: "Caos controlado em zonas pouco usadas.", dominant: "chaotic", mix: ["chaotic", "dispersive", "anticrowd"], color: "batch-omega" },
 };
 
 export type Scenario = "conservative" | "hybrid" | "aggressive" | "exploratory";
@@ -113,5 +113,8 @@ export interface GenerationResult {
 export interface DrawRecord {
   contestNumber: number;
   drawDate?: string;
-  numbers: Dezena[]; // 20 dezenas
+  numbers: Dezena[] | string[]; // Suporte explícito para numérico e formato "00" normalizado
+  source?: "api" | "database" | "manual";
+  syncedAt?: string;
+  lastCheckedAt?: string;
 }

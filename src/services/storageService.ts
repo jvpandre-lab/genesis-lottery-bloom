@@ -4,14 +4,17 @@ import { Dezena, DrawRecord, GenerationResult } from "@/engine/lotteryTypes";
 export async function fetchRecentDraws(limit = 10): Promise<DrawRecord[]> {
   const { data, error } = await supabase
     .from("lotomania_draws")
-    .select("contest_number, draw_date, numbers")
+    .select("contest_number, draw_date, numbers, source, synced_at, last_checked_at")
     .order("contest_number", { ascending: false })
     .limit(limit);
   if (error) throw error;
   return (data ?? []).map((r) => ({
     contestNumber: r.contest_number,
     drawDate: r.draw_date ?? undefined,
-    numbers: r.numbers as Dezena[],
+    numbers: r.numbers as any,
+    source: r.source,
+    syncedAt: r.synced_at,
+    lastCheckedAt: r.last_checked_at
   }));
 }
 
@@ -29,10 +32,13 @@ export async function upsertDraws(draws: DrawRecord[]): Promise<number> {
     contest_number: d.contestNumber,
     draw_date: d.drawDate ?? null,
     numbers: d.numbers,
+    source: d.source ?? "manual",
+    synced_at: d.syncedAt ?? new Date().toISOString(),
+    last_checked_at: d.lastCheckedAt ?? new Date().toISOString()
   }));
   const { error, count } = await supabase
     .from("lotomania_draws")
-    .upsert(rows, { onConflict: "contest_number", count: "exact" });
+    .upsert(rows, { onConflict: "contest_number", count: "exact", ignoreDuplicates: true });
   if (error) throw error;
   return count ?? rows.length;
 }

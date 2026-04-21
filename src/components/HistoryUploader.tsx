@@ -3,24 +3,54 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Upload, Database, FileWarning, Loader2 } from "lucide-react";
-import { parseDrawsFile } from "@/services/contestService";
-import { countDraws, upsertDraws } from "@/services/storageService";
+import { parseDrawsFile, syncDraws } from "@/services/contestService";
+import { countDraws, upsertDraws, fetchRecentDraws } from "@/services/storageService";
 import { toast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (total: number) => void }>(({ onChanged }, _ref) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [count, setCount] = useState<number | null>(null);
+  const [latestSync, setLatestSync] = useState<{ source?: string; syncedAt?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
     try {
       const c = await countDraws();
       setCount(c);
+      if (c > 0) {
+        const recent = await fetchRecentDraws(1);
+        if (recent.length > 0) {
+          setLatestSync({ source: recent[0].source, syncedAt: recent[0].syncedAt });
+        }
+      } else {
+        setLatestSync(null);
+      }
       onChanged?.(c);
-    } catch { setCount(null); }
+    } catch { setCount(null); setLatestSync(null); }
   }
 
   useEffect(() => { refresh(); }, []);
+
+  async function handleSyncApi() {
+    setBusy(true);
+    try {
+      const report = await syncDraws();
+      if (report.status === "success") {
+        toast({ title: "Sincronização OK", description: `${report.newRecordsAdded} concursos novos adicionados. ${report.recordsIgnoredDuplicate} já registrados.` });
+      } else if (report.status === "fallback_banco") {
+        toast({ title: "Fallback Automático", description: "API da Caixa demorou a responder ou falhou. Operando 100% com dados do banco atual.", variant: "destructive" });
+      } else {
+        toast({ title: "Erro Crítico", description: report.error || "A API e o Banco falharam simultaneamente.", variant: "destructive" });
+      }
+      await refresh();
+    } catch (e: any) {
+      toast({ title: "Falha de Sincronização", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleFile(file: File) {
     setBusy(true);
@@ -35,9 +65,9 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
       }
       const inserted = await upsertDraws(draws);
       const discardSummary = report?.discardReasons ? Object.entries(report.discardReasons).map(([reason, count]) => `${reason}: ${count}`).join(", ") : "";
-      toast({ 
-        title: "Histórico atualizado", 
-        description: `${inserted} concursos importados. Lidos: ${report?.totalRead || 0}, Válidos: ${report?.totalValid || 0}, Descartados: ${report?.totalDiscarded || 0}${discardSummary ? ` (${discardSummary})` : ""}.` 
+      toast({
+        title: "Histórico atualizado",
+        description: `${inserted} concursos importados. Lidos: ${report?.totalRead || 0}, Válidos: ${report?.totalValid || 0}, Descartados: ${report?.totalDiscarded || 0}${discardSummary ? ` (${discardSummary})` : ""}.`
       });
       await refresh();
     } catch (e: any) {
@@ -54,18 +84,40 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
           <Database className="h-5 w-5 text-accent" />
         </div>
         <div>
-          <div className="text-sm font-medium">Histórico de Concursos</div>
-          <div className="text-[11px] text-muted-foreground">
+          <div className="text-sm font-medium flex items-center gap-2">
+            Histórico Oficial
+            {latestSync?.source && (
+              <Badge variant="outline" className={`text-[10px] uppercase h-5 font-bold ${latestSync.source === 'api' ? 'text-green-400 border-green-500/30' : latestSync.source === 'manual' ? 'text-yellow-400 border-yellow-500/30' : 'text-blue-400 border-blue-500/30'}`}>
+                Origem: {latestSync.source}
+              </Badge>
+            )}
+          </div>
+          <div className="text-[11px] text-muted-foreground flex flex-col mt-0.5">
             {count === null ? "Indisponível" : count === 0 ? (
-              <span className="inline-flex items-center gap-1"><FileWarning className="h-3 w-3" /> Nenhum concurso carregado — anti-viés operará apenas em modo interno.</span>
+              <span className="inline-flex items-center gap-1 text-yellow-500/80"><FileWarning className="h-3 w-3" /> Nenhum concurso. Anti-viés operará no escuro.</span>
             ) : (
-              <>{count} concursos no banco · usados para anti-viés e backtest.</>
+              <span>{count} concursos armazenados na base local.</span>
+            )}
+
+            {latestSync?.syncedAt && (
+              <span className="text-[10px] opacity-75">
+                Última sincronia: {formatDistanceToNow(new Date(latestSync.syncedAt), { addSuffix: true, locale: ptBR })}
+              </span>
             )}
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        {count !== null && count > 0 && <Badge variant="outline" className="font-mono num-mono">{count}</Badge>}
+      <div className="flex flex-col sm:flex-row items-center gap-2">
+        <Button
+          variant="default"
+          size="sm"
+          onClick={handleSyncApi}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+          <span className="ml-2">Sincronizar API</span>
+        </Button>
         <Input
           ref={inputRef}
           type="file"
@@ -78,10 +130,10 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
           size="sm"
           onClick={() => inputRef.current?.click()}
           disabled={busy}
-          className="border-border/60"
+          className="border-border/60 text-xs w-full sm:w-auto"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          <span className="ml-2">Importar CSV/JSON</span>
+          <span className="ml-2">Upload Fallback</span>
         </Button>
       </div>
     </div>
