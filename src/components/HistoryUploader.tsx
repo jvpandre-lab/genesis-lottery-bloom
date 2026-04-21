@@ -26,13 +26,19 @@ export const HistoryUploader = React.forwardRef<HTMLDivElement, { onChanged?: (t
     setBusy(true);
     try {
       const text = await file.text();
-      const draws = parseDrawsFile(text, file.name);
+      const result = parseDrawsFile(text, file.name) as any;
+      const { draws, report } = result;
+
       if (draws.length === 0) {
         toast({ title: "Nenhum concurso reconhecido", description: "Verifique o formato do arquivo.", variant: "destructive" });
         return;
       }
       const inserted = await upsertDraws(draws);
-      toast({ title: "Histórico atualizado", description: `${inserted} concursos importados.` });
+      const discardSummary = report?.discardReasons ? Object.entries(report.discardReasons).map(([reason, count]) => `${reason}: ${count}`).join(", ") : "";
+      toast({ 
+        title: "Histórico atualizado", 
+        description: `${inserted} concursos importados. Lidos: ${report?.totalRead || 0}, Válidos: ${report?.totalValid || 0}, Descartados: ${report?.totalDiscarded || 0}${discardSummary ? ` (${discardSummary})` : ""}.` 
+      });
       await refresh();
     } catch (e: any) {
       toast({ title: "Falha ao importar", description: e?.message ?? "Erro desconhecido", variant: "destructive" });

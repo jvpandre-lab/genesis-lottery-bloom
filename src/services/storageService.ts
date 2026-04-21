@@ -80,3 +80,82 @@ export async function persistGeneration(result: GenerationResult): Promise<strin
   }
   return generationId;
 }
+
+export interface PressureSignal {
+  signalType: string;
+  value: number;
+  threshold?: number;
+  triggered: boolean;
+}
+
+export interface AdjustmentRecord {
+  adjustmentType: string;
+  details: any;
+  applied: boolean;
+}
+
+export interface LineageRecord {
+  lineage: string;
+  dominanceScore: number;
+  explorationRate?: number;
+  stabilityScore?: number;
+}
+
+export interface TerritorySnapshot {
+  snapshot: any;
+  saturationLevel?: number;
+}
+
+export async function persistPressureSignals(generationId: string, signals: PressureSignal[]): Promise<void> {
+  const rows = signals.map(s => ({
+    generation_id: generationId,
+    signal_type: s.signalType,
+    value: s.value,
+    threshold: s.threshold,
+    triggered: s.triggered,
+  }));
+  const { error } = await supabase.from("adaptive_pressure_signals").insert(rows);
+  if (error) throw error;
+}
+
+export async function persistAdjustments(generationId: string, adjustments: AdjustmentRecord[]): Promise<void> {
+  const rows = adjustments.map(a => ({
+    generation_id: generationId,
+    adjustment_type: a.adjustmentType,
+    details: a.details,
+    applied: a.applied,
+  }));
+  const { error } = await supabase.from("adaptive_adjustments").insert(rows);
+  if (error) throw error;
+}
+
+export async function persistLineageHistory(generationId: string, lineages: LineageRecord[]): Promise<void> {
+  const rows = lineages.map(l => ({
+    generation_id: generationId,
+    lineage: l.lineage,
+    dominance_score: l.dominanceScore,
+    exploration_rate: l.explorationRate,
+    stability_score: l.stabilityScore,
+  }));
+  const { error } = await supabase.from("lineage_history").insert(rows);
+  if (error) throw error;
+}
+
+export async function persistTerritorySnapshot(generationId: string, snapshot: TerritorySnapshot): Promise<void> {
+  const { error } = await supabase.from("territory_snapshots").insert({
+    generation_id: generationId,
+    snapshot: snapshot.snapshot,
+    saturation_level: snapshot.saturationLevel,
+  });
+  if (error) throw error;
+}
+
+export async function persistScenarioTransition(fromScenario: string | null, toScenario: string, reason: string, triggeredBy: any): Promise<void> {
+  const { error } = await supabase.from("scenario_transitions").insert({
+    from_scenario: fromScenario,
+    to_scenario: toScenario,
+    reason,
+    triggered_by: triggeredBy,
+  });
+  if (error) throw error;
+}

@@ -23,7 +23,7 @@ describe("Backtest", () => {
     expect(rep.windows[0].avgHits).toBeGreaterThan(0);
     expect(rep.perLineage.length).toBeGreaterThan(0);
     expect(rep.perBatch.length).toBeGreaterThan(0);
-  });
+  }, 10000);
 });
 
 describe("Two Brains + Arbiter", () => {

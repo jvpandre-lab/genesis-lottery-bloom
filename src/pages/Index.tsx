@@ -12,8 +12,12 @@ import { HistoryUploader } from "@/components/HistoryUploader";
 import { BacktestPanel } from "@/components/BacktestPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
+import { EcosystemDashboard } from "@/components/EcosystemDashboard";
+import { TacticalLotePanel } from "@/components/TacticalLotePanel";
+import { BrainTensionDiagnostics } from "@/components/BrainTensionDiagnostics";
 import { recommend } from "@/engine/recommendationEngine";
 import { globalPressure } from "@/engine/adaptivePressureEngine";
+import { integrateEcosystemFlow } from "@/engine/ecoIntegration";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +50,13 @@ const Index = () => {
       setDiag(diagnostics);
       try { await persistGeneration(gen as GenerationResult); } catch (e: any) {
         toast({ title: "Geração concluída (não persistida)", description: e?.message ?? "" });
+      }
+      // Integrate ecosystem analysis
+      try {
+        await integrateEcosystemFlow(gen as GenerationResult, diagnostics);
+        toast({ title: "Ecossistema atualizado", description: "Análise territorial, tática e cerebral integrada." });
+      } catch (e: any) {
+        console.warn("Ecosystem integration failed:", e);
       }
     } catch (e: any) {
       toast({ title: "Falha ao gerar", description: e?.message ?? "Erro desconhecido", variant: "destructive" });
@@ -172,6 +183,9 @@ const Index = () => {
                 {diag && <DiagnosticsPanel diag={diag} />}
                 {recommendations.length > 0 && <RecommendationsPanel items={recommendations} />}
                 <BacktestPanel currentGeneration={result} />
+                <EcosystemDashboard />
+                <TacticalLotePanel />
+                <BrainTensionDiagnostics />
                 <div className="glass rounded-xl p-5 space-y-3">
                   <h4 className="text-sm font-semibold tracking-tight">Composição das linhagens</h4>
                   <LineageBreakdown result={result} />
