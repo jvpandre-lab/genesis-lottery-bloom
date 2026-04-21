@@ -5,7 +5,7 @@ export async function fetchRecentDraws(limit = 10): Promise<DrawRecord[]> {
   console.log(`[fetchRecentDraws] Fetching ${limit} recent draws from lotomania_draws`);
   const { data, error } = await supabase
     .from("lotomania_draws")
-    .select("id, contest_number, draw_date, numbers, created_at")
+    .select("id, contest_number, draw_date, numbers, source, synced_at, last_checked_at, created_at")
     .order("contest_number", { ascending: false })
     .limit(limit);
   if (error) {
@@ -17,6 +17,9 @@ export async function fetchRecentDraws(limit = 10): Promise<DrawRecord[]> {
     contestNumber: r.contest_number,
     drawDate: r.draw_date ?? undefined,
     numbers: r.numbers as any,
+    source: r.source,
+    synced_at: r.synced_at,
+    last_checked_at: r.last_checked_at,
     createdAt: r.created_at
   }));
 }
@@ -43,7 +46,10 @@ export async function upsertDraws(draws: DrawRecord[]): Promise<number> {
   const rows = draws.map((d) => ({
     contest_number: d.contestNumber,
     draw_date: d.drawDate ?? null,
-    numbers: d.numbers
+    numbers: d.numbers,
+    source: d.source ?? 'api',
+    synced_at: d.synced_at ?? new Date().toISOString(),
+    last_checked_at: d.last_checked_at ?? new Date().toISOString()
   }));
   console.log(`[upsertDraws] First record to insert:`, JSON.stringify(rows[0]));
   const { error, count } = await supabase

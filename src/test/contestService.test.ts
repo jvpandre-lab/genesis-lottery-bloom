@@ -3,28 +3,28 @@ import { parseDrawsFile, ImportReport } from "@/services/contestService";
 
 describe("contestService parser", () => {
   it("parseia CSV com header e data", () => {
-    const csv = `concurso,data,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,d13,d14,d15,d16,d17,d18,d19,d20
-2700,2025-12-01,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20
-2701,2025-12-04,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40`;
+    const csv = `concurso,data,${Array.from({ length: 50 }, (_, i) => `d${i + 1}`).join(',')}
+2700,2025-12-01,${Array.from({ length: 50 }, (_, i) => i).join(',')}
+2701,2025-12-04,${Array.from({ length: 50 }, (_, i) => i + 1).join(',')}`;
     const out = parseDrawsFile(csv, "x.csv") as any;
     const draws = Array.isArray(out) ? out : out.draws;
     expect(draws).toHaveLength(2);
     expect(draws[0].contestNumber).toBe(2700);
-    expect(draws[0].numbers).toHaveLength(20);
+    expect(draws[0].numbers).toHaveLength(50);
     expect(draws[0].drawDate).toBe("2025-12-01");
   });
 
   it("aceita JSON com chaves variadas", () => {
     const json = JSON.stringify([
-      { concurso: 100, dezenas: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"] },
-      { contest_number: 101, numbers: [10, 20, 30, 40, 50, 60, 70, 80, 90, 99, 0, 5, 15, 25, 35, 45, 55, 65, 75, 85] },
+      { concurso: 100, dezenas: Array.from({ length: 50 }, (_, i) => i.toString().padStart(2, '0')) },
+      { contest_number: 101, numbers: Array.from({ length: 50 }, (_, i) => (i + 10) % 100) },
     ]);
     const out = parseDrawsFile(json, "x.json") as any;
     const draws = Array.isArray(out) ? out : out.draws;
     // Note: the second draw has numbers that may not be sorted, so it might be rejected
     expect(draws.length).toBeGreaterThanOrEqual(1);
     if (draws.length > 0) {
-      expect(draws[0].numbers[0]).toBe(1);
+      expect(draws[0].numbers[0]).toBe("00");
     }
   });
 

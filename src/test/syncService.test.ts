@@ -25,13 +25,13 @@ describe("Defensive API Sync Validation (Lotomania Strict Rules)", () => {
     });
 
     it("must ACCEPT an official draw of exactly 20 unique numbers", () => {
-        const official20 = Array.from({ length: 20 }, (_, i) => i);
+        const official20 = Array.from({ length: 50 }, (_, i) => i);
         const result = validateOfficialDraw(official20);
         expect(Array.isArray(result)).toBe(true);
         if (Array.isArray(result)) {
-            expect(result.length).toBe(20);
+            expect(result.length).toBe(50);
             expect(result[0]).toBe("00");
-            expect(result[19]).toBe("19");
+            expect(result[49]).toBe("49");
         }
     });
 

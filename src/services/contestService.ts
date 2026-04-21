@@ -65,7 +65,7 @@ export function validateBet(rawNums: any[] | string): string[] | { error: string
 }
 
 export function validateOfficialDraw(rawNums: any[] | string): string[] | { error: string } {
-  return validateNumberSet(rawNums, 20);
+  return validateNumberSet(rawNums, 50);
 }
 
 /**
@@ -156,7 +156,10 @@ export async function syncDraws(): Promise<SyncReport> {
         toInsert.push({
           contestNumber: contest,
           drawDate: item.data ? normalizeDate(item.data) : undefined,
-          numbers: valid // string[]
+          numbers: valid, // string[]
+          source: 'api',
+          synced_at: new Date().toISOString(),
+          last_checked_at: new Date().toISOString()
         });
       }
     }
@@ -229,7 +232,10 @@ function parseJSON(content: string): { draws: DrawRecord[], report: ImportReport
     out.push({
       contestNumber: contest,
       drawDate: typeof drawDate === "string" ? drawDate.slice(0, 10) : undefined,
-      numbers: valid
+      numbers: valid,
+      source: 'manual',
+      synced_at: new Date().toISOString(),
+      last_checked_at: new Date().toISOString()
     });
     report.totalValid++;
   }
@@ -279,7 +285,10 @@ function parseCSV(content: string): { draws: DrawRecord[], report: ImportReport 
     out.push({
       contestNumber: contest,
       drawDate,
-      numbers: valid
+      numbers: valid,
+      source: 'manual',
+      synced_at: new Date().toISOString(),
+      last_checked_at: new Date().toISOString()
     });
     report.totalValid++;
   }
