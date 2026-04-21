@@ -1,0 +1,83 @@
+{
+  "A": {
+    "hits15": 5,
+    "hits16": 0,
+    "hits17": 0,
+    "hits18": 0,
+    "hits19": 0,
+    "hits20": 0,
+    "zeroHits": 0,
+    "poorGames": 128,
+    "totalHits": 3001,
+    "totalGames": 300,
+    "lineagePerformances": {
+      "conservative": {
+        "totalHits": 477,
+        "count": 50
+      },
+      "coverage": {
+        "totalHits": 46,
+        "count": 4
+      },
+      "dispersive": {
+        "totalHits": 991,
+        "count": 98
+      },
+      "anticrowd": {
+        "totalHits": 485,
+        "count": 50
+      },
+      "chaotic": {
+        "totalHits": 1002,
+        "count": 98
+      }
+    },
+    "scenarioPerformances": {
+      "hybrid": {
+        "totalHits": 3001,
+        "count": 300
+      }
+    }
+  },
+  "B": {
+    "hits15": 6,
+    "hits16": 0,
+    "hits17": 0,
+    "hits18": 0,
+    "hits19": 0,
+    "hits20": 0,
+    "zeroHits": 0,
+    "poorGames": 107,
+    "totalHits": 3043,
+    "totalGames": 300,
+    "lineagePerformances": {
+      "conservative": {
+        "totalHits": 1325,
+        "count": 132
+      },
+      "dispersive": {
+        "totalHits": 835,
+        "count": 82
+      },
+      "anticrowd": {
+        "totalHits": 698,
+        "count": 68
+      },
+      "hybrid": {
+        "totalHits": 113,
+        "count": 11
+      },
+      "coverage": {
+        "totalHits": 72,
+        "count": 7
+      }
+    },
+    "scenarioPerformances": {
+      "hybrid": {
+        "totalHits": 3043,
+        "count": 300
+      }
+    }
+  },
+  "reportStr": "=== RESULTADOS: ÚLTIMOS 50 CONCURSOS (197.8s) ===\n[MODO A (Antigão v1)]  - Jogos: 300 | Média Acertos: 10.003\n -> 15 Acertos: 5\n -> 16 Acertos: 0\n -> 17 Acertos: 0\n -> 18 Acertos: 0\n -> 19 Acertos: 0\n -> 20 Acertos: 0\n -> 0 Acertos : 0\n -> Jogos < 10: 128 (lixo)\n\n[MODO B (Motores v2)]  - Jogos: 300 | Média Acertos: 10.143\n -> 15 Acertos: 6\n -> 16 Acertos: 0\n -> 17 Acertos: 0\n -> 18 Acertos: 0\n -> 19 Acertos: 0\n -> 20 Acertos: 0\n -> 0 Acertos : 0\n -> Jogos < 10: 107 (lixo)\n"
+}
