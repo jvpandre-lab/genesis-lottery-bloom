@@ -16,6 +16,15 @@ export interface GenerateInput {
   label?: string;
   /** Quando true, usa Dois Cérebros + Árbitro (recomendado). */
   twoBrains?: boolean;
+  /** Flags para desativar engines específicos durante testes */
+  disableEngines?: {
+    territory?: boolean;
+    coverage?: boolean;
+    diversity?: boolean;
+    antiBias?: boolean;
+    evolutionary?: boolean;
+    adaptivePressure?: boolean;
+  };
 }
 
 export interface GenerationDiagnostics {
@@ -81,14 +90,17 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
   const totalCount = input.count;
   const recent = (input.recentDraws ?? []).slice(0, 8).map((d) => d.numbers);
   const useTwoBrains = input.twoBrains !== false;
+  const disableEngines = input.disableEngines ?? {};
 
   // Pressão adaptativa
   globalPressure.load();
-  const adjustments = globalPressure.computeAdjustments(scenario);
+  const adjustments = disableEngines.adaptivePressure ? { mutationDelta: 0, scenarioOverride: undefined } : globalPressure.computeAdjustments(scenario);
   const effectiveScenario = adjustments.scenarioOverride ?? scenario;
 
   const territory = new TerritoryMap();
-  recent.forEach((nums) => territory.observeNumbers(nums as Dezena[]));
+  if (!disableEngines.territory) {
+    recent.forEach((nums) => territory.observeNumbers(nums as Dezena[]));
+  }
 
   const distribution = distributeBatches(totalCount, effectiveScenario);
   const batches: Batch[] = [];
@@ -107,7 +119,7 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
       // Cada cérebro propõe ~ceil(n*1.6) candidatos para o árbitro escolher n.
       const k = Math.max(2, Math.ceil(n * 1.4));
       const ctxBase: Omit<ScoreContext, "lineage"> = {
-        usage: territory.usageSnapshot(),
+        usage: disableEngines.territory ? new Array(100).fill(0) : territory.usageSnapshot(),
         reference: [],
         recentDraws: recent as Dezena[][],
       };
@@ -124,7 +136,7 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
         if (isRedundant(cand.numbers, finalGames.map((g) => g.numbers), 0.78)) {
           contradictionsRejected++;
           // tenta um substituto: re-evolve com mutação alta
-          const retry = evolve(p.lineage, { ...ctxBase, lineage: p.lineage, reference: finalGames.map((g) => g.numbers) }, {
+          const retry = disableEngines.evolutionary ? Array.from({ length: 50 }, (_, i) => (i * 3 + p.lineage.charCodeAt(0)) % 100) : evolve(p.lineage, { ...ctxBase, lineage: p.lineage, reference: finalGames.map((g) => g.numbers) }, {
             populationSize: 28, generations: 14, baseMutationRate: Math.min(0.45, baseRate + 0.15), rng,
           });
           const m = computeMetrics(retry);
@@ -136,7 +148,9 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
           const s = scoreGame(cand.numbers, { ...ctxBase, lineage: p.lineage, reference: finalGames.map((g) => g.numbers) }, m);
           finalGames.push({ ...cand, score: s, metrics: m });
         }
-        territory.observeNumbers(finalGames[finalGames.length - 1].numbers);
+        if (!disableEngines.territory) {
+          territory.observeNumbers(finalGames[finalGames.length - 1].numbers);
+        }
       }
       games.push(...finalGames);
     } else {
@@ -146,27 +160,36 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
         attempts++;
         const lineage = pickFallbackLineage(batchName, games.length);
         const ctx: ScoreContext = {
-          usage: territory.usageSnapshot(),
+          usage: disableEngines.territory ? new Array(100).fill(0) : territory.usageSnapshot(),
           reference: games.map((g) => g.numbers),
           recentDraws: recent as Dezena[][],
           lineage,
         };
-        const numbers = evolve(lineage, ctx, { populationSize: 32, generations: 18, baseMutationRate: baseRate, rng });
-        if (isRedundant(numbers, games.map((g) => g.numbers), 0.8)) { contradictionsRejected++; continue; }
-        const metrics = computeMetrics(numbers);
+        const numbers = disableEngines.evolutionary ? Array.from({ length: 50 }, (_, i) => (i * 2 + lineage.charCodeAt(0)) % 100) : evolve(lineage, ctx, { populationSize: 32, generations: 18, baseMutationRate: baseRate, rng });
+        if (!disableEngines.diversity && isRedundant(numbers, games.map((g) => g.numbers), 0.8)) { contradictionsRejected++; continue; }
+        const metrics = disableEngines.coverage ? { coverage: 0.5, balance: 0.5, distribution: 0.5 } : computeMetrics(numbers);
         const score = scoreGame(numbers, ctx, metrics);
         if (games.length > 0 && score.total < 0.45) { contradictionsRejected++; continue; }
         games.push({ numbers, lineage, score, metrics });
-        territory.observeNumbers(numbers);
+        if (!disableEngines.territory) {
+          territory.observeNumbers(numbers);
+        }
       }
       while (games.length < n) {
         const lineage = pickFallbackLineage(batchName, games.length);
-        const ctx: ScoreContext = { usage: territory.usageSnapshot(), reference: games.map((g) => g.numbers), recentDraws: recent as Dezena[][], lineage };
-        const numbers = evolve(lineage, ctx, { populationSize: 24, generations: 12, baseMutationRate: Math.min(0.4, baseRate + 0.08), rng });
-        const metrics = computeMetrics(numbers);
+        const ctx: ScoreContext = {
+          usage: disableEngines.territory ? new Array(100).fill(0) : territory.usageSnapshot(),
+          reference: games.map((g) => g.numbers),
+          recentDraws: recent as Dezena[][],
+          lineage
+        };
+        const numbers = disableEngines.evolutionary ? Array.from({ length: 50 }, (_, i) => i * 2 % 100) : evolve(lineage, ctx, { populationSize: 24, generations: 12, baseMutationRate: Math.min(0.4, baseRate + 0.08), rng });
+        const metrics = disableEngines.coverage ? { coverage: 0.5, balance: 0.5, distribution: 0.5 } : computeMetrics(numbers);
         const score = scoreGame(numbers, ctx, metrics);
         games.push({ numbers, lineage, score, metrics });
-        territory.observeNumbers(numbers);
+        if (!disableEngines.territory) {
+          territory.observeNumbers(numbers);
+        }
       }
     }
 
@@ -179,7 +202,7 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
   const avgScore = allGames.reduce((s, g) => s + g.score.total, 0) / Math.max(1, allGames.length);
   const avgDiversity = batches.reduce((s, b) => s + b.diversity, 0) / Math.max(1, batches.length);
   const avgCoverage = allGames.reduce((s, g) => s + g.score.coverage, 0) / Math.max(1, allGames.length);
-  const territoryEntropy = territory.entropy();
+  const territoryEntropy = disableEngines.territory ? 0 : territory.entropy();
 
   const result: GenerationResult = {
     label: input.label ?? `Geração ${new Date().toLocaleTimeString("pt-BR")}`,
@@ -190,7 +213,9 @@ export async function generate(input: GenerateInput): Promise<GenerationResult &
     createdAt: new Date().toISOString(),
   };
 
-  globalPressure.observe(result);
+  if (!disableEngines.adaptivePressure) {
+    globalPressure.observe(result);
+  }
 
   return { ...result, diagnostics: { contradictionsRejected, arbiterReasoning, adjustments } };
 }
